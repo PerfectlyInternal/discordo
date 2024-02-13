@@ -17,6 +17,7 @@ type MessagesText struct {
 	*tview.TextView
 
 	selectedMessage int
+	spoilers bool
 }
 
 func newMessagesText() *MessagesText {
@@ -24,6 +25,7 @@ func newMessagesText() *MessagesText {
 		TextView: tview.NewTextView(),
 
 		selectedMessage: -1,
+		spoilers: true,
 	}
 
 	mt.SetDynamicColors(true)
@@ -112,7 +114,7 @@ func (mt *MessagesText) createHeader(w io.Writer, m discord.Message, isReply boo
 }
 
 func (mt *MessagesText) createBody(w io.Writer, m discord.Message) {
-	fmt.Fprint(w, markdown.Parse(tview.Escape(m.Content)))
+	fmt.Fprint(w, markdown.Parse(tview.Escape(m.Content), mt.spoilers))
 }
 
 func (mt *MessagesText) createFooter(w io.Writer, m discord.Message) {
@@ -150,6 +152,9 @@ func (mt *MessagesText) onInputCapture(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case cfg.Keys.MessagesText.ShowImage:
 		mt.showImageAction()
+		return nil
+	case cfg.Keys.MessagesText.ToggleSpoilers:
+		mt.toggleSpoilersAction()
 		return nil
 	case cfg.Keys.MessagesText.Delete:
 		mt.deleteAction()
@@ -322,6 +327,12 @@ func (mt *MessagesText) showImageAction() {
 	}
 
 	app.SetRoot(ai, true)
+}
+
+func (mt *MessagesText) toggleSpoilersAction() {
+	mt.spoilers = !mt.spoilers
+	mt.drawMsgs(mainFlex.guildsTree.selectedChannelID)
+	return
 }
 
 func (mt *MessagesText) deleteAction() {

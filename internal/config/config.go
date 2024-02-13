@@ -37,6 +37,7 @@ type Config struct {
 
 			ShowImage   string `yaml:"show_image"`
 			CopyContent string `yaml:"copy_content"`
+			ToggleSpoilers	string `yaml:"toggle_spoilers"`
 
 			Reply        string `yaml:"reply"`
 			ReplyMention string `yaml:"reply_mention"`
