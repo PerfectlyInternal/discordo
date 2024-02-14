@@ -26,7 +26,12 @@ type Config struct {
 
 	Keys struct {
 		Cancel string `yaml:"cancel"`
-
+	
+		GuildSearch struct {
+			Focus  string `yaml:"focus"`
+			Search string `yaml:"search"`
+		} `yaml:"guild_search"`
+		
 		GuildsTree struct {
 			Focus  string `yaml:"focus"`
 			Toggle string `yaml:"toggle"`

@@ -16,7 +16,10 @@ type GuildsTree struct {
 	*tview.TreeView
 
 	root              *tview.TreeNode
+	dms		  *tview.TreeNode
 	selectedChannelID discord.ChannelID
+	searchKeyword	  string
+	guildFolders	  []gateway.GuildFolder
 }
 
 func newGuildsTree() *GuildsTree {
@@ -24,6 +27,7 @@ func newGuildsTree() *GuildsTree {
 		TreeView: tview.NewTreeView(),
 
 		root: tview.NewTreeNode(""),
+		dms: tview.NewTreeNode("Direct Messages"),
 	}
 
 	gt.SetTopLevel(1)
@@ -40,6 +44,9 @@ func newGuildsTree() *GuildsTree {
 	gt.SetBorder(cfg.Theme.Border)
 	gt.SetBorderColor(tcell.GetColor(cfg.Theme.BorderColor))
 	gt.SetBorderPadding(p[0], p[1], p[2], p[3])
+
+	gt.dms.SetExpanded(false)
+	gt.root.AddChild(gt.dms)
 
 	return gt
 }
@@ -70,6 +77,19 @@ func (gt *GuildsTree) createGuildNode(n *tview.TreeNode, g discord.Guild) {
 	gn := tview.NewTreeNode(g.Name)
 	gn.SetReference(g.ID)
 	n.AddChild(gn)
+	gn.SetExpanded(gt.searchKeyword != "")
+
+	cs, err := discordState.Cabinet.Channels(g.ID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	sort.Slice(cs, func(i, j int) bool {
+		return cs[i].Position < cs[j].Position
+	})
+
+	gt.createChannelNodes(gn, cs)
 }
 
 func (gt *GuildsTree) channelToString(c discord.Channel) string {
@@ -88,7 +108,9 @@ func (gt *GuildsTree) channelToString(c discord.Channel) string {
 		if s == "" {
 			rs := make([]string, len(c.DMRecipients))
 			for _, r := range c.DMRecipients {
-				rs = append(rs, r.Tag())
+				if r.Tag() != "" {
+					rs = append(rs, r.Tag())
+				}
 			}
 
 			s = strings.Join(rs, ", ")
@@ -107,6 +129,10 @@ func (gt *GuildsTree) channelToString(c discord.Channel) string {
 }
 
 func (gt *GuildsTree) createChannelNode(n *tview.TreeNode, c discord.Channel) {
+	if c.Type != discord.GuildCategory && !strings.Contains(gt.channelToString(c), gt.searchKeyword) {
+		return
+	}
+
 	if c.Type != discord.DirectMessage && c.Type != discord.GroupDM {
 		ps, err := discordState.Permissions(c.ID, discordState.Ready().User.ID)
 		if err != nil {
@@ -125,17 +151,11 @@ func (gt *GuildsTree) createChannelNode(n *tview.TreeNode, c discord.Channel) {
 }
 
 func (gt *GuildsTree) createChannelNodes(n *tview.TreeNode, cs []discord.Channel) {
-	for _, c := range cs {
-		if c.Type != discord.GuildCategory && !c.ParentID.IsValid() {
-			gt.createChannelNode(n, c)
-		}
-	}
-
 PARENT_CHANNELS:
 	for _, c := range cs {
 		if c.Type == discord.GuildCategory {
 			for _, nested := range cs {
-				if nested.ParentID == c.ID {
+				if strings.Contains(gt.channelToString(nested), gt.searchKeyword) && nested.ParentID == c.ID {
 					gt.createChannelNode(n, c)
 					continue PARENT_CHANNELS
 				}
@@ -174,18 +194,6 @@ func (gt *GuildsTree) onSelected(n *tview.TreeNode) {
 	}
 
 	switch ref := n.GetReference().(type) {
-	case discord.GuildID:
-		cs, err := discordState.Cabinet.Channels(ref)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		sort.Slice(cs, func(i, j int) bool {
-			return cs[i].Position < cs[j].Position
-		})
-
-		gt.createChannelNodes(n, cs)
 	case discord.ChannelID:
 		mainFlex.messagesText.drawMsgs(ref)
 
@@ -199,19 +207,58 @@ func (gt *GuildsTree) onSelected(n *tview.TreeNode) {
 
 		gt.selectedChannelID = ref
 		app.SetFocus(mainFlex.messageInput)
-	case nil: // Direct messages
-		cs, err := discordState.Cabinet.PrivateChannels()
-		if err != nil {
-			log.Println(err)
-			return
-		}
 
-		sort.Slice(cs, func(i, j int) bool {
-			return cs[i].LastMessageID > cs[j].LastMessageID
-		})
+	}
+}
 
-		for _, c := range cs {
-			gt.createChannelNode(n, c)
+func (gt *GuildsTree) genDMs() {
+	cs, err := discordState.Cabinet.PrivateChannels()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	sort.Slice(cs, func(i, j int) bool {
+		// dont allow dms with wave messages to be first due to their bugged id
+		return 	cs[i].LastMessageID > cs[j].LastMessageID && 
+			cs[i].LastMessageID != 18446744073709551615 
+	})
+
+	for _, c := range cs {
+		gt.createChannelNode(gt.dms, c)
+	}
+}
+
+func (gt *GuildsTree) genGuilds() {
+	for _, gf := range gt.guildFolders {
+		/// If the ID of the guild folder is zero, the guild folder only contains single guild.
+		if gf.ID == 0 {
+			g, err := discordState.Cabinet.Guild(gf.GuildIDs[0])
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+
+			gt.createGuildNode(gt.root, *g)
+		} else {
+			gt.createGuildFolderNode(gt.root, gf)
 		}
 	}
+}
+
+func (gt *GuildsTree) rebuildTree() {
+	gt.root.ClearChildren()
+	gt.dms.ClearChildren()
+	gt.root.AddChild(gt.dms)
+	gt.genDMs()
+	gt.dms.SetExpanded(gt.searchKeyword != "")
+	gt.genGuilds()
+	gt.SetCurrentNode(gt.root)
+}
+
+func (gt *GuildsTree) search(keyword string) {
+	log.Println(keyword)
+	app.SetFocus(mainFlex.guildsTree)
+	gt.searchKeyword = keyword
+	gt.rebuildTree()
 }

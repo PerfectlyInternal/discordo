@@ -10,7 +10,6 @@ import (
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/httputil/httpdriver"
-	"github.com/rivo/tview"
 )
 
 func init() {
@@ -56,25 +55,8 @@ func (s *State) onRequest(r httpdriver.Request) error {
 }
 
 func (s *State) onReady(r *gateway.ReadyEvent) {
-	dmNode := tview.NewTreeNode("Direct Messages")
-	mainFlex.guildsTree.root.AddChild(dmNode)
-
-	for _, gf := range r.UserSettings.GuildFolders {
-		/// If the ID of the guild folder is zero, the guild folder only contains single guild.
-		if gf.ID == 0 {
-			g, err := s.Cabinet.Guild(gf.GuildIDs[0])
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-
-			mainFlex.guildsTree.createGuildNode(mainFlex.guildsTree.root, *g)
-		} else {
-			mainFlex.guildsTree.createGuildFolderNode(mainFlex.guildsTree.root, gf)
-		}
-	}
-
-	mainFlex.guildsTree.SetCurrentNode(mainFlex.guildsTree.root)
+	mainFlex.guildsTree.guildFolders = r.UserSettings.GuildFolders
+	mainFlex.guildsTree.rebuildTree()
 	app.SetFocus(mainFlex.guildsTree)
 }
 
